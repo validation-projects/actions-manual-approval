@@ -4,19 +4,20 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: package.json
           cache: npm
 
       - name: Install dependencies
@@ -33,9 +34,13 @@ jobs:
 
       - name: Check dist/ is up to date
         run: |
-          if [ -n "$(git status --porcelain dist)" ]; then
+          if ! git diff --exit-code --stat dist/; then
             echo "::error::dist/ is out of date. Run 'npm run build' and commit the result."
-            git status --porcelain dist
-            git diff --stat dist
+            exit 1
+          fi
+          untracked="$(git ls-files --others --exclude-standard dist/)"
+          if [ -n "$untracked" ]; then
+            echo "::error::dist/ has files not committed to the repository. Run 'npm run build' and commit the result."
+            echo "$untracked"
             exit 1
           fi
