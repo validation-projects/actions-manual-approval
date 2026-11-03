@@ -221,7 +221,54 @@ npm test
 npm run build   # gera dist/index.js com @vercel/ncc — commite o resultado
 ```
 
-O CI (`.github/workflows/ci.yml`) roda lint, testes e verifica se `dist/` está atualizado.
+O CI (`.github/workflows/ci.yml`) roda em `push` e `pull_request` para `main`: lint, testes, build e
+`git diff --exit-code dist/`, que falha se o `dist/` commitado estiver desatualizado em relação ao
+build. A versão do Node vem de `engines.node` no `package.json` (alinhada ao `node20` do `action.yml`).
+
+## Convenção de commits
+
+As versões são calculadas pelo [semantic-release](https://semantic-release.gitbook.io/) a partir de
+[Conventional Commits](https://www.conventionalcommits.org/) (preset `conventionalcommits`):
+
+| Commit | Exemplo | Release |
+| --- | --- | --- |
+| `fix:` | `fix: ignora aprovações de reviewers fora do environment` | patch (`1.0.0` → `1.0.1`) |
+| `feat:` | `feat: adiciona input poll-timeout` | minor (`1.0.0` → `1.1.0`) |
+| `!` após o tipo ou footer `BREAKING CHANGE:` | `feat!: remove input user-token` | major (`1.0.0` → `2.0.0`) |
+| `chore:`, `docs:`, `test:`, `ci:`, `refactor:`, `style:`, `build:` | `docs: corrige exemplo` | sem release |
+
+Exemplo de breaking change com footer:
+
+```
+feat: renomeia input default-action para on-timeout
+
+BREAKING CHANGE: o input default-action foi removido; use on-timeout.
+```
+
+Com *squash merge*, o **título do PR** vira a mensagem do commit em `main` e, portanto, precisa
+seguir a convenção.
+
+## Fluxo de release
+
+1. O PR é mergeado em `main` (o CI garante que `dist/` está atualizado).
+2. O workflow `.github/workflows/release.yml` roda em `push` para `main`: `npm ci`, lint, testes e
+   `npm run build` (antes do semantic-release), depois `npx semantic-release` com `.releaserc.json`:
+   - `@semantic-release/commit-analyzer` determina o tipo de release a partir dos commits desde a última tag;
+   - `@semantic-release/release-notes-generator` gera as notas;
+   - `@semantic-release/changelog` atualiza o `CHANGELOG.md`;
+   - `@semantic-release/npm` (com `npmPublish: false`, nada é publicado) atualiza `version` no `package.json`/`package-lock.json`;
+   - `@semantic-release/git` commita `CHANGELOG.md`, `package.json`, `package-lock.json` e `dist/` como
+     `chore(release): X.Y.Z [skip ci]`;
+   - `@semantic-release/github` cria a tag `vX.Y.Z` e o GitHub Release, e comenta nos issues/PRs incluídos.
+3. A major tag flutuante (`v1`, `v2`, …) é movida para o commit da nova release, então
+   `uses: validation-projects/actions-manual-approval@v1` sempre aponta para a última `v1.x.y`.
+
+O campo `version` do `package.json` fica `0.0.0` no repositório até a primeira release: a versão real
+é derivada das tags. Sem tags anteriores, a primeira release será `v1.0.0`.
+
+> O workflow usa o `GITHUB_TOKEN` (permissões `contents`, `issues` e `pull-requests: write`) para
+> commitar em `main` e criar tags. Se `main` tiver branch protection que bloqueie pushes diretos, permita
+> o bypass para o GitHub Actions ou troque o token por um de GitHub App/PAT com essa permissão.
 
 ### Estrutura
 
@@ -235,3 +282,4 @@ O CI (`.github/workflows/ci.yml`) roda lint, testes e verifica se `dist/` está 
 | `src/wait.js` | Loop de polling com `setTimeout`, abortável via `AbortController`. |
 | `src/approve.js` | Aprovação via pending deployments (PAT) ou protection rule (App). |
 | `src/cancel.js` | Cancelamento do run e falha do job. |
+| `.releaserc.json` | Configuração do semantic-release. |
