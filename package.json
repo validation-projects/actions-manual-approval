@@ -1,6 +1,6 @@
 {
   "name": "actions-manual-approval",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "GitHub Action that replaces the native environment wait timer with a timer that is cancelled as soon as a required reviewer approves the deployment.",
   "main": "dist/index.js",
   "private": true,
