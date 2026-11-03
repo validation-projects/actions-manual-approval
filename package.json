@@ -6,7 +6,7 @@
   "private": true,
   "license": "MIT",
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   },
   "scripts": {
     "lint": "eslint .",
@@ -28,14 +28,14 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
-    "@semantic-release/changelog": "^6.0.3",
-    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/changelog": "^7.0.0",
+    "@semantic-release/git": "^11.0.1",
     "@vercel/ncc": "^0.38.3",
     "conventional-changelog-conventionalcommits": "^9.3.1",
     "eslint": "^9.39.0",
     "globals": "^15.15.0",
     "jest": "^29.7.0",
-    "semantic-release": "^24.2.9"
+    "semantic-release": "^25.0.9"
   },
   "jest": {
     "testEnvironment": "node",

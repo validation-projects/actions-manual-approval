@@ -73,11 +73,19 @@ forneça `app-id` e `app-private-key`, que permitem renovar o token automaticame
 
 | Referência | Comportamento |
 | --- | --- |
-| `@v1` | Major tag flutuante: recebe automaticamente correções e features compatíveis (`1.x.y`). Recomendado. |
-| `@v1.0.0` | Versão exata e imutável. |
+| `@v2` | Major tag flutuante: recebe automaticamente correções e features compatíveis (`2.x.y`). Recomendado. |
+| `@v2.0.0` | Versão exata e imutável. |
 | `@<sha>` | Commit específico, para máxima segurança contra alterações de tags. |
 
-Breaking changes geram uma nova major (`v2`) e não afetam quem referencia `@v1`.
+Breaking changes geram uma nova major e não afetam quem referencia a major anterior.
+
+| Major | Runtime (`runs.using`) | Runner mínimo |
+| --- | --- | --- |
+| `v2` | `node24` | [v2.327.1](https://github.com/actions/runner/releases/tag/v2.327.1) |
+| `v1` | `node20` (descontinuado pelo GitHub; não recebe mais atualizações) | — |
+
+Runners hospedados pelo GitHub já atendem ao requisito. Em **runners self-hosted**, atualize o runner
+para v2.327.1 ou superior antes de migrar de `@v1` para `@v2`; até lá, continue usando `@v1`.
 
 ### Environment com Required reviewers
 
@@ -100,7 +108,7 @@ jobs:
   approval-timer:
     runs-on: ubuntu-latest
     steps:
-      - uses: validation-projects/actions-manual-approval@v1
+      - uses: validation-projects/actions-manual-approval@v2
         with:
           wait-timer: 30
           default-action: approve
@@ -145,7 +153,7 @@ jobs:
     permissions:
       actions: read
     steps:
-      - uses: validation-projects/actions-manual-approval@v1
+      - uses: validation-projects/actions-manual-approval@v2
         with:
           environment: ${{ inputs.environment }}
           wait-timer: ${{ inputs.wait-timer }}
@@ -204,13 +212,13 @@ jobs:
   approval-timer:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/create-github-app-token@v1
+      - uses: actions/create-github-app-token@v3
         id: app
         with:
-          app-id: ${{ vars.APPROVER_APP_ID }}
+          client-id: ${{ vars.APPROVER_APP_CLIENT_ID }}
           private-key: ${{ secrets.APPROVER_APP_PRIVATE_KEY }}
 
-      - uses: validation-projects/actions-manual-approval@v1
+      - uses: validation-projects/actions-manual-approval@v2
         with:
           wait-timer: 30
           default-action: approve
@@ -233,7 +241,7 @@ npm run build   # gera dist/index.js com @vercel/ncc — commite o resultado
 
 O CI (`.github/workflows/ci.yml`) roda em `push` e `pull_request` para `main`: lint, testes, build e
 `git diff --exit-code dist/`, que falha se o `dist/` commitado estiver desatualizado em relação ao
-build. A versão do Node vem de `engines.node` no `package.json` (alinhada ao `node20` do `action.yml`).
+build. A versão do Node vem de `engines.node` no `package.json` (alinhada ao `node24` do `action.yml`).
 
 ## Convenção de commits
 
@@ -271,10 +279,10 @@ seguir a convenção.
      `chore(release): X.Y.Z [skip ci]`;
    - `@semantic-release/github` cria a tag `vX.Y.Z` e o GitHub Release, e comenta nos issues/PRs incluídos.
 3. A major tag flutuante (`v1`, `v2`, …) é movida para o commit da nova release, então
-   `uses: validation-projects/actions-manual-approval@v1` sempre aponta para a última `v1.x.y`.
+   `uses: validation-projects/actions-manual-approval@v2` sempre aponta para a última `v2.x.y`.
 
-O campo `version` do `package.json` fica `0.0.0` no repositório até a primeira release: a versão real
-é derivada das tags. Sem tags anteriores, a primeira release será `v1.0.0`.
+O campo `version` do `package.json` é atualizado pelo semantic-release em cada release; a fonte da
+verdade são as tags `vX.Y.Z`.
 
 > O workflow usa o `GITHUB_TOKEN` (permissões `contents`, `issues` e `pull-requests: write`) para
 > commitar em `main` e criar tags. Se `main` tiver branch protection que bloqueie pushes diretos, permita
