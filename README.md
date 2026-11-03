@@ -69,6 +69,16 @@ forneça `app-id` e `app-private-key`, que permitem renovar o token automaticame
 
 ## Uso
 
+### Versões
+
+| Referência | Comportamento |
+| --- | --- |
+| `@v1` | Major tag flutuante: recebe automaticamente correções e features compatíveis (`1.x.y`). Recomendado. |
+| `@v1.0.0` | Versão exata e imutável. |
+| `@<sha>` | Commit específico, para máxima segurança contra alterações de tags. |
+
+Breaking changes geram uma nova major (`v2`) e não afetam quem referencia `@v1`.
+
 ### Environment com Required reviewers
 
 Em **Settings → Environments → `production`**:
