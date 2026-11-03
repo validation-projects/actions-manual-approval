@@ -105,10 +105,13 @@ async function getApprovalStatus(octokit, { owner, repo, runId, environment, rev
     }
   }
 
-  // An approval only counts once no deployment of the target is still waiting for review.
-  if (approver && targetPending.length === 0) {
-    core.info(`Deployment approved by required reviewer ${approver}.`);
-    return STATUS.APPROVED;
+  // Re-check pending deployments after reading reviews to avoid using a pre-approval snapshot.
+  if (approver) {
+    const { data: latestPending } = await octokit.rest.actions.getPendingDeploymentsForRun({ owner, repo, run_id: runId });
+    if (!latestPending.some((d) => matchesEnvironment(d.environment, environment))) {
+      core.info(`Deployment approved by required reviewer ${approver}.`);
+      return STATUS.APPROVED;
+    }
   }
   return STATUS.PENDING;
 }
