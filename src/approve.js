@@ -54,10 +54,31 @@ async function approveWithAppToken(octokit, { owner, repo, runId, environment, c
   core.info(`Approved custom deployment protection rule for "${environment}".`);
 }
 
+/**
+ * After a required reviewer approved, answers the App's custom protection rule for the reviewed
+ * environment(s), which GitHub otherwise keeps blocking.
+ */
+async function approveReviewedAppRules(octokit, { owner, repo, runId, environment, comment }) {
+  let names = [environment];
+  if (!environment) {
+    const { data: reviews } = await octokit.rest.actions.getReviewsForRun({ owner, repo, run_id: runId });
+    names = [
+      ...new Set(
+        reviews
+          .filter((r) => r.state === 'approved')
+          .flatMap((r) => (r.environments || []).map((env) => env.name)),
+      ),
+    ];
+  }
+  for (const name of names) {
+    await approveWithAppToken(octokit, { owner, repo, runId, environment: name, comment });
+  }
+}
+
 async function approve(octokit, { mode, ...params }) {
   if (mode === 'user') return approveWithUserToken(octokit, params);
   if (mode === 'app') return approveWithAppToken(octokit, params);
   throw new Error(`Unknown approval mode "${mode}".`);
 }
 
-module.exports = { approve, approveWithUserToken, approveWithAppToken, DEFAULT_COMMENT };
+module.exports = { approve, approveWithUserToken, approveWithAppToken, approveReviewedAppRules, DEFAULT_COMMENT };

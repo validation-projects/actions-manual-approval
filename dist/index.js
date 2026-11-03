@@ -38508,10 +38508,13 @@ async function getApprovalStatus(octokit, { owner, repo, runId, environment, rev
     }
   }
 
-  // An approval only counts once no deployment of the target is still waiting for review.
-  if (approver && targetPending.length === 0) {
-    core.info(`Deployment approved by required reviewer ${approver}.`);
-    return STATUS.APPROVED;
+  // Re-check pending deployments after reading reviews to avoid using a pre-approval snapshot.
+  if (approver) {
+    const { data: latestPending } = await octokit.rest.actions.getPendingDeploymentsForRun({ owner, repo, run_id: runId });
+    if (!latestPending.some((d) => matchesEnvironment(d.environment, environment))) {
+      core.info(`Deployment approved by required reviewer ${approver}.`);
+      return STATUS.APPROVED;
+    }
   }
   return STATUS.PENDING;
 }
@@ -38587,13 +38590,34 @@ async function approveWithAppToken(octokit, { owner, repo, runId, environment, c
   core.info(`Approved custom deployment protection rule for "${environment}".`);
 }
 
+/**
+ * After a required reviewer approved, answers the App's custom protection rule for the reviewed
+ * environment(s), which GitHub otherwise keeps blocking.
+ */
+async function approveReviewedAppRules(octokit, { owner, repo, runId, environment, comment }) {
+  let names = [environment];
+  if (!environment) {
+    const { data: reviews } = await octokit.rest.actions.getReviewsForRun({ owner, repo, run_id: runId });
+    names = [
+      ...new Set(
+        reviews
+          .filter((r) => r.state === 'approved')
+          .flatMap((r) => (r.environments || []).map((env) => env.name)),
+      ),
+    ];
+  }
+  for (const name of names) {
+    await approveWithAppToken(octokit, { owner, repo, runId, environment: name, comment });
+  }
+}
+
 async function approve(octokit, { mode, ...params }) {
   if (mode === 'user') return approveWithUserToken(octokit, params);
   if (mode === 'app') return approveWithAppToken(octokit, params);
   throw new Error(`Unknown approval mode "${mode}".`);
 }
 
-module.exports = { approve, approveWithUserToken, approveWithAppToken, DEFAULT_COMMENT };
+module.exports = { approve, approveWithUserToken, approveWithAppToken, approveReviewedAppRules, DEFAULT_COMMENT };
 
 
 /***/ }),
@@ -38668,7 +38692,7 @@ const { getInputs } = __nccwpck_require__(1700);
 const { resolveToken } = __nccwpck_require__(9735);
 const { getApprovalStatus } = __nccwpck_require__(1579);
 const { waitForApproval, OUTCOME } = __nccwpck_require__(8644);
-const { approve } = __nccwpck_require__(112);
+const { approve, approveReviewedAppRules } = __nccwpck_require__(112);
 const { cancel } = __nccwpck_require__(9831);
 
 async function run() {
@@ -38710,6 +38734,9 @@ async function run() {
     switch (outcome) {
       case OUTCOME.APPROVED:
         core.info('Approved by a required reviewer: wait timer skipped.');
+        if (auth.mode === 'app') {
+          await approveReviewedAppRules(octokit, { owner, repo, runId, environment });
+        }
         core.setOutput('result', 'approved');
         return;
       case OUTCOME.REJECTED:

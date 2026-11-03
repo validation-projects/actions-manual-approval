@@ -5,7 +5,7 @@ const { getInputs } = require('./inputs');
 const { resolveToken } = require('./auth');
 const { getApprovalStatus } = require('./approval-check');
 const { waitForApproval, OUTCOME } = require('./wait');
-const { approve } = require('./approve');
+const { approve, approveReviewedAppRules } = require('./approve');
 const { cancel } = require('./cancel');
 
 async function run() {
@@ -47,6 +47,9 @@ async function run() {
     switch (outcome) {
       case OUTCOME.APPROVED:
         core.info('Approved by a required reviewer: wait timer skipped.');
+        if (auth.mode === 'app') {
+          await approveReviewedAppRules(octokit, { owner, repo, runId, environment });
+        }
         core.setOutput('result', 'approved');
         return;
       case OUTCOME.REJECTED:

@@ -15,7 +15,7 @@ const core = require('@actions/core');
 const github = require('@actions/github');
 const { getApprovalStatus } = require('../src/approval-check');
 const { waitForApproval } = require('../src/wait');
-const { approve } = require('../src/approve');
+const { approve, approveReviewedAppRules } = require('../src/approve');
 const { cancel } = require('../src/cancel');
 const { run } = require('../src/index');
 
@@ -54,8 +54,18 @@ describe('run', () => {
     );
     expect(core.setOutput).toHaveBeenCalledWith('result', 'approved');
     expect(approve).not.toHaveBeenCalled();
+    expect(approveReviewedAppRules).not.toHaveBeenCalled();
     expect(cancel).not.toHaveBeenCalled();
     expect(core.setFailed).not.toHaveBeenCalled();
+  });
+
+  it.each(['approve', 'cancel'])('approves the app rule on reviewer approval (default-action %s)', async (action) => {
+    setInputs({ 'user-token': '', 'app-token': 'ghs_y', 'default-action': action });
+    waitForApproval.mockResolvedValue('approved');
+    await run();
+    expect(approveReviewedAppRules).toHaveBeenCalledWith(octokit, { owner: 'org', repo: 'repo', runId: 42, environment: 'prod' });
+    expect(core.setOutput).toHaveBeenCalledWith('result', 'approved');
+    expect(cancel).not.toHaveBeenCalled();
   });
 
   it('skips the default action on rejection', async () => {

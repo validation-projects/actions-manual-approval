@@ -1,6 +1,6 @@
 jest.mock('@actions/core');
-const { approve, DEFAULT_COMMENT } = require('../src/approve');
-const { createOctokit, pendingDeployment } = require('./helpers');
+const { approve, approveReviewedAppRules, DEFAULT_COMMENT } = require('../src/approve');
+const { createOctokit, pendingDeployment, review } = require('./helpers');
 
 const params = { owner: 'org', repo: 'repo', runId: 7 };
 
@@ -54,6 +54,23 @@ describe('approve (app-token)', () => {
 
   it('requires an environment', async () => {
     await expect(approve(createOctokit(), { mode: 'app', ...params })).rejects.toThrow('"environment" is required');
+  });
+});
+
+describe('approveReviewedAppRules', () => {
+  it('approves the app rule of the given environment', async () => {
+    const octokit = createOctokit();
+    await approveReviewedAppRules(octokit, { ...params, environment: 'prod' });
+    expect(octokit.rest.actions.reviewCustomGatesForRun).toHaveBeenCalledTimes(1);
+    expect(octokit.rest.actions.reviewCustomGatesForRun.mock.calls[0][0].environment_name).toBe('prod');
+  });
+
+  it('approves the app rule of every approved environment when none is given', async () => {
+    const octokit = createOctokit({
+      reviews: [review('approved', 'prod', 'a', 1), review('approved', 'prod', 'b', 2), review('approved', 'staging', 'a', 1), review('rejected', 'dev', 'c', 3)],
+    });
+    await approveReviewedAppRules(octokit, params);
+    expect(octokit.rest.actions.reviewCustomGatesForRun.mock.calls.map((c) => c[0].environment_name)).toEqual(['prod', 'staging']);
   });
 });
 
