@@ -1,3 +1,15 @@
+## [2.0.0](https://github.com/validation-projects/actions-manual-approval/compare/v1.0.0...v2.0.0) (2026-11-03)
+
+### ⚠ BREAKING CHANGES
+
+* the action now runs on node24 and requires GitHub Actions runner v2.327.1 or later. Self-hosted runners on older versions must be updated before moving to v2; @v1 keeps running on node20.
+
+Co-Authored-By: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+
+### Features
+
+* run action on Node.js 24 ([a5de586](https://github.com/validation-projects/actions-manual-approval/commit/a5de586bd983908a166eb30f52d5a64527c1f2f6))
+
 ## 1.0.0 (2026-11-03)
 
 ### ⚠ BREAKING CHANGES
