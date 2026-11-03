@@ -2,27 +2,42 @@ jest.mock('@octokit/auth-app');
 jest.mock('@actions/github');
 const { createAppAuth } = require('@octokit/auth-app');
 const github = require('@actions/github');
-const { resolveToken } = require('../src/auth');
+const { resolveOctokit } = require('../src/auth');
 const { createOctokit } = require('./helpers');
 
-describe('resolveToken', () => {
+describe('resolveOctokit', () => {
   it('returns the provided token as is', async () => {
-    await expect(resolveToken({ mode: 'user', token: 'ghp_x' }, {})).resolves.toBe('ghp_x');
+    const octokit = createOctokit();
+    github.getOctokit.mockReturnValue(octokit);
+
+    await expect(resolveOctokit({ mode: 'user', token: 'ghp_x' }, {})).resolves.toBe(octokit);
+    expect(github.getOctokit).toHaveBeenCalledWith('ghp_x');
     expect(createAppAuth).not.toHaveBeenCalled();
   });
 
-  it('creates an installation token from app-id/app-private-key', async () => {
-    const auth = jest.fn(async ({ type }) => ({ token: type === 'app' ? 'jwt' : 'ghs_install' }));
+  it('creates an auto-refreshing client and uses the configured API host for App requests', async () => {
+    const auth = jest.fn().mockResolvedValue({ token: 'jwt' });
+    auth.hook = jest.fn();
     createAppAuth.mockReturnValue(auth);
     const appOctokit = createOctokit();
+    appOctokit.request = jest.fn();
     github.getOctokit.mockReturnValue(appOctokit);
 
-    const token = await resolveToken({ mode: 'app', appId: '1', privateKey: 'PEM' }, { owner: 'org', repo: 'repo' });
+    const octokit = await resolveOctokit(
+      { mode: 'app', appId: '1', privateKey: 'PEM' },
+      { owner: 'org', repo: 'repo' },
+    );
 
-    expect(token).toBe('ghs_install');
-    expect(createAppAuth).toHaveBeenCalledWith({ appId: '1', privateKey: 'PEM' });
+    expect(octokit).toBe(appOctokit);
+    expect(createAppAuth).toHaveBeenNthCalledWith(1, { appId: '1', privateKey: 'PEM' });
     expect(github.getOctokit).toHaveBeenCalledWith('jwt');
     expect(appOctokit.rest.apps.getRepoInstallation).toHaveBeenCalledWith({ owner: 'org', repo: 'repo' });
-    expect(auth).toHaveBeenLastCalledWith({ type: 'installation', installationId: 99 });
+    expect(createAppAuth).toHaveBeenNthCalledWith(2, {
+      appId: '1',
+      privateKey: 'PEM',
+      installationId: 99,
+      request: appOctokit.request,
+    });
+    expect(github.getOctokit).toHaveBeenLastCalledWith('jwt', { request: { hook: auth.hook } });
   });
 });

@@ -58,9 +58,9 @@ async function approveWithAppToken(octokit, { owner, repo, runId, environment, c
  * After a required reviewer approved, answers the App's custom protection rule for the reviewed
  * environment(s), which GitHub otherwise keeps blocking.
  */
-async function approveReviewedAppRules(octokit, { owner, repo, runId, environment, comment }) {
-  let names = [environment];
-  if (!environment) {
+async function approveReviewedAppRules(octokit, { owner, repo, runId, environment, environments, comment }) {
+  let names = environments && environments.size ? [...environments] : environment ? [environment] : [];
+  if (names.length === 0) {
     const { data: reviews } = await octokit.rest.actions.getReviewsForRun({ owner, repo, run_id: runId });
     names = [
       ...new Set(

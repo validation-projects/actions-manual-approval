@@ -1,8 +1,8 @@
 jest.mock('@actions/core');
 jest.mock('@actions/github', () => ({
   context: { repo: { owner: 'org', repo: 'repo' }, runId: 42 },
-  getOctokit: jest.fn(),
 }));
+jest.mock('../src/auth');
 jest.mock('../src/approval-check');
 jest.mock('../src/wait', () => ({
   ...jest.requireActual('../src/wait'),
@@ -12,7 +12,7 @@ jest.mock('../src/approve');
 jest.mock('../src/cancel');
 
 const core = require('@actions/core');
-const github = require('@actions/github');
+const { resolveOctokit } = require('../src/auth');
 const { getApprovalStatus } = require('../src/approval-check');
 const { waitForApproval } = require('../src/wait');
 const { approve, approveReviewedAppRules } = require('../src/approve');
@@ -27,7 +27,7 @@ function setInputs(values) {
 }
 
 beforeEach(() => {
-  github.getOctokit.mockReturnValue(octokit);
+  resolveOctokit.mockResolvedValue(octokit);
 });
 
 describe('run', () => {
@@ -46,7 +46,10 @@ describe('run', () => {
     });
     await run();
 
-    expect(github.getOctokit).toHaveBeenCalledWith('ghp_x');
+    expect(resolveOctokit).toHaveBeenCalledWith(
+      { mode: 'user', token: 'ghp_x' },
+      { owner: 'org', repo: 'repo' },
+    );
     expect(waitForApproval).toHaveBeenCalledWith(expect.objectContaining({ durationMs: 300000, intervalMs: 15000 }));
     expect(getApprovalStatus).toHaveBeenCalledWith(
       octokit,
@@ -61,9 +64,25 @@ describe('run', () => {
 
   it.each(['approve', 'cancel'])('approves the app rule on reviewer approval (default-action %s)', async (action) => {
     setInputs({ 'user-token': '', 'app-token': 'ghs_y', 'default-action': action });
-    waitForApproval.mockResolvedValue('approved');
+    getApprovalStatus.mockImplementation(async (_octokit, { approvedEnvironments }) => {
+      approvedEnvironments.add('prod');
+      return 'approved';
+    });
+    waitForApproval.mockImplementation(async ({ check }) => {
+      await check();
+      return 'approved';
+    });
     await run();
-    expect(approveReviewedAppRules).toHaveBeenCalledWith(octokit, { owner: 'org', repo: 'repo', runId: 42, environment: 'prod' });
+    expect(approveReviewedAppRules).toHaveBeenCalledWith(
+      octokit,
+      expect.objectContaining({
+        owner: 'org',
+        repo: 'repo',
+        runId: 42,
+        environment: 'prod',
+        environments: new Set(['prod']),
+      }),
+    );
     expect(core.setOutput).toHaveBeenCalledWith('result', 'approved');
     expect(cancel).not.toHaveBeenCalled();
   });
@@ -88,7 +107,10 @@ describe('run', () => {
     setInputs({ 'user-token': '', 'app-token': 'ghs_y' });
     waitForApproval.mockResolvedValue('expired');
     await run();
-    expect(github.getOctokit).toHaveBeenCalledWith('ghs_y');
+    expect(resolveOctokit).toHaveBeenCalledWith(
+      { mode: 'app', token: 'ghs_y' },
+      { owner: 'org', repo: 'repo' },
+    );
     expect(approve).toHaveBeenCalledWith(octokit, expect.objectContaining({ mode: 'app', environment: 'prod' }));
   });
 

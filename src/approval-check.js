@@ -79,16 +79,19 @@ async function isRequiredReviewer(octokit, { owner, user, reviewers }) {
  *
  * @returns {Promise<'approved'|'rejected'|'pending'>}
  */
-async function getApprovalStatus(octokit, { owner, repo, runId, environment, reviewerCache = new Map() }) {
+async function getApprovalStatus(
+  octokit,
+  { owner, repo, runId, environment, reviewerCache = new Map(), approvedEnvironments },
+) {
   const { data: pending } = await octokit.rest.actions.getPendingDeploymentsForRun({ owner, repo, run_id: runId });
-  const targetPending = pending.filter((d) => matchesEnvironment(d.environment, environment));
-  for (const deployment of targetPending) {
+  for (const deployment of pending.filter((d) => matchesEnvironment(d.environment, environment))) {
     reviewerCache.set(deployment.environment.name, deployment.reviewers || []);
   }
 
   const { data: reviews } = await octokit.rest.actions.getReviewsForRun({ owner, repo, run_id: runId });
 
   let approver;
+  const newlyApprovedEnvironments = new Set();
   for (const review of reviews) {
     const environments = (review.environments || []).filter((env) => matchesEnvironment(env, environment));
     if (environments.length === 0) continue;
@@ -101,17 +104,32 @@ async function getApprovalStatus(octokit, { owner, repo, runId, environment, rev
         core.info(`Deployment to "${env.name}" rejected by @${review.user.login}.`);
         return STATUS.REJECTED;
       }
-      if (review.state === 'approved') approver = approver || `@${review.user.login} ("${env.name}")`;
+      if (review.state === 'approved') {
+        approver = approver || `@${review.user.login} ("${env.name}")`;
+        newlyApprovedEnvironments.add(env.name);
+      }
     }
   }
 
-  // Re-check pending deployments after reading reviews to avoid using a pre-approval snapshot.
   if (approver) {
-    const { data: latestPending } = await octokit.rest.actions.getPendingDeploymentsForRun({ owner, repo, run_id: runId });
-    if (!latestPending.some((d) => matchesEnvironment(d.environment, environment))) {
-      core.info(`Deployment approved by required reviewer ${approver}.`);
-      return STATUS.APPROVED;
+    const { data: latestPending } = await octokit.rest.actions.getPendingDeploymentsForRun({
+      owner,
+      repo,
+      run_id: runId,
+    });
+    const targetPending = latestPending.filter((d) => matchesEnvironment(d.environment, environment));
+    for (const deployment of targetPending) {
+      reviewerCache.set(deployment.environment.name, deployment.reviewers || []);
     }
+
+    // An approval only counts once no deployment of the target is still waiting for review.
+    if (targetPending.length > 0) return STATUS.PENDING;
+
+    if (approvedEnvironments) {
+      for (const name of newlyApprovedEnvironments) approvedEnvironments.add(name);
+    }
+    core.info(`Deployment approved by required reviewer ${approver}.`);
+    return STATUS.APPROVED;
   }
   return STATUS.PENDING;
 }

@@ -29,7 +29,8 @@ workflow run
    `GET /repos/{owner}/{repo}/actions/runs/{run_id}/approvals`.
 3. Se um required reviewer aprovar antes do fim (diretamente ou como membro de um team revisor,
    verificado via `GET /orgs/{org}/teams/{team}/memberships/{user}`), a action termina com sucesso
-   (`result=approved`) e o timer é ignorado. Uma rejeição também encerra a action
+   (`result=approved`) e o timer é ignorado. Com autenticação de GitHub App, ela também aprova a
+   custom protection rule dos environments aprovados. Uma rejeição também encerra a action
    (`result=rejected`), sem executar a `default-action`.
 4. Se o timer expirar sem aprovação, a `default-action` é executada:
    - `approve` + `user-token`: `POST /repos/{owner}/{repo}/actions/runs/{run_id}/pending_deployments`
@@ -55,6 +56,10 @@ workflow run
 
 \* `user-token` e `app-token` (ou `app-id`/`app-private-key`) são **mutuamente exclusivos**: exatamente
 um deles deve ser informado. Inputs inválidos falham o job com mensagens que listam todos os erros.
+
+Installation tokens fornecidos em `app-token` expiram após uma hora e não podem ser renovados pela
+action. O token precisa continuar válido durante toda a espera e a ação final; para esperas longas,
+forneça `app-id` e `app-private-key`, que permitem renovar o token automaticamente.
 
 ## Outputs
 
@@ -203,8 +208,9 @@ jobs:
           app-token: ${{ steps.app.outputs.token }}
 ```
 
-Ao expirar, a action aprova a protection rule do App para o environment. O GitHub só libera o job
-quando **todas** as protection rules do environment estiverem satisfeitas.
+Ao expirar sem aprovação, a action aprova a protection rule do App para o environment. Quando um
+required reviewer aprova antes, a action também responde à protection rule do App. O GitHub só
+libera o job quando **todas** as protection rules do environment estiverem satisfeitas.
 
 ## Desenvolvimento
 

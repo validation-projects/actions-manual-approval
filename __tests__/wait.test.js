@@ -52,6 +52,38 @@ describe('waitForApproval', () => {
     await expect(promise).resolves.toBe(OUTCOME.APPROVED);
   });
 
+  it('returns aborted when a successful check finishes after the signal is aborted', async () => {
+    const controller = new AbortController();
+    let finishCheck;
+    const check = jest.fn(() => new Promise((resolve) => {
+      finishCheck = resolve;
+    }));
+    const promise = waitForApproval(opts(check, { signal: controller.signal }));
+
+    controller.abort();
+    finishCheck('approved');
+
+    await expect(promise).resolves.toBe(OUTCOME.ABORTED);
+  });
+
+  it('returns aborted when the final deadline check fails after the signal is aborted', async () => {
+    const controller = new AbortController();
+    let failFinalCheck;
+    const check = jest
+      .fn()
+      .mockResolvedValueOnce('pending')
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => {
+        failFinalCheck = reject;
+      }));
+    const promise = waitForApproval(opts(check, { durationMs: 100, intervalMs: 100, signal: controller.signal }));
+
+    await jest.advanceTimersByTimeAsync(100);
+    controller.abort();
+    failFinalCheck(new Error('request failed'));
+
+    await expect(promise).resolves.toBe(OUTCOME.ABORTED);
+  });
+
   it('can be aborted with an AbortController', async () => {
     const controller = new AbortController();
     const check = jest.fn().mockResolvedValue('pending');

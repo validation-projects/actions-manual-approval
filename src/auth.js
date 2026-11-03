@@ -2,26 +2,32 @@ const { createAppAuth } = require('@octokit/auth-app');
 const github = require('@actions/github');
 
 /**
- * Generates an installation token for the GitHub App installed on owner/repo.
+ * Creates an Octokit client that refreshes its installation token as needed.
  */
-async function createAppInstallationToken({ appId, privateKey, owner, repo }) {
-  const auth = createAppAuth({ appId, privateKey });
-  const { token: jwt } = await auth({ type: 'app' });
+async function createAppOctokit({ appId, privateKey, owner, repo }) {
+  const appAuth = createAppAuth({ appId, privateKey });
+  const { token: jwt } = await appAuth({ type: 'app' });
 
   const appOctokit = github.getOctokit(jwt);
   const { data: installation } = await appOctokit.rest.apps.getRepoInstallation({ owner, repo });
 
-  const installationAuth = createAppAuth({ appId, privateKey, request: appOctokit.request });
-  const { token } = await installationAuth({ type: 'installation', installationId: installation.id });
-  return token;
+  const installationAuth = createAppAuth({
+    appId,
+    privateKey,
+    installationId: installation.id,
+    request: appOctokit.request,
+  });
+  return github.getOctokit(jwt, { request: { hook: installationAuth.hook } });
 }
 
 /**
- * Returns the token used for every API call, based on the validated auth inputs.
+ * Returns an Octokit client based on the validated auth inputs.
  */
-async function resolveToken(auth, { owner, repo }) {
-  if (auth.token) return auth.token;
-  return createAppInstallationToken({ appId: auth.appId, privateKey: auth.privateKey, owner, repo });
+async function resolveOctokit(auth, { owner, repo }) {
+  if (auth.privateKey) {
+    return createAppOctokit({ appId: auth.appId, privateKey: auth.privateKey, owner, repo });
+  }
+  return github.getOctokit(auth.token);
 }
 
-module.exports = { resolveToken, createAppInstallationToken };
+module.exports = { resolveOctokit, createAppOctokit };

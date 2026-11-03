@@ -29,6 +29,20 @@ describe('getApprovalStatus', () => {
     expect(octokit.rest.repos.getEnvironment).not.toHaveBeenCalled();
   });
 
+  it('re-fetches pending deployments after an approval to handle an interleaved reviewer decision', async () => {
+    const octokit = createOctokit({
+      reviews: [review('approved', 'prod', 'alice', 1)],
+    });
+    octokit.rest.actions.getPendingDeploymentsForRun
+      .mockResolvedValueOnce({ data: [pendingDeployment('prod', 5, [alice])] })
+      .mockResolvedValueOnce({ data: [] });
+    const approvedEnvironments = new Set();
+
+    await expect(getApprovalStatus(octokit, { ...params, approvedEnvironments })).resolves.toBe(STATUS.APPROVED);
+    expect(octokit.rest.actions.getPendingDeploymentsForRun).toHaveBeenCalledTimes(2);
+    expect(approvedEnvironments).toEqual(new Set(['prod']));
+  });
+
   it('falls back to environment protection rules for the reviewer list', async () => {
     const octokit = createOctokit({
       reviews: [review('approved', 'prod', 'alice', 1)],

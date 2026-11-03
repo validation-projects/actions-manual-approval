@@ -2,7 +2,7 @@ const core = require('@actions/core');
 const github = require('@actions/github');
 
 const { getInputs } = require('./inputs');
-const { resolveToken } = require('./auth');
+const { resolveOctokit } = require('./auth');
 const { getApprovalStatus } = require('./approval-check');
 const { waitForApproval, OUTCOME } = require('./wait');
 const { approve, approveReviewedAppRules } = require('./approve');
@@ -28,9 +28,9 @@ async function run() {
   process.once('SIGTERM', abort);
 
   try {
-    const token = await resolveToken(auth, { owner, repo });
-    const octokit = github.getOctokit(token);
+    const octokit = await resolveOctokit(auth, { owner, repo });
     const reviewerCache = new Map();
+    const approvedEnvironments = new Set();
 
     core.info(
       `Watching ${target} of run ${runId} for ${inputs.waitTimer} minute(s); ` +
@@ -41,14 +41,21 @@ async function run() {
       durationMs: inputs.waitTimerMs,
       intervalMs: inputs.pollIntervalMs,
       signal: controller.signal,
-      check: () => getApprovalStatus(octokit, { owner, repo, runId, environment, reviewerCache }),
+      check: () =>
+        getApprovalStatus(octokit, { owner, repo, runId, environment, reviewerCache, approvedEnvironments }),
     });
 
     switch (outcome) {
       case OUTCOME.APPROVED:
         core.info('Approved by a required reviewer: wait timer skipped.');
         if (auth.mode === 'app') {
-          await approveReviewedAppRules(octokit, { owner, repo, runId, environment });
+          await approveReviewedAppRules(octokit, {
+            owner,
+            repo,
+            runId,
+            environment,
+            environments: approvedEnvironments,
+          });
         }
         core.setOutput('result', 'approved');
         return;

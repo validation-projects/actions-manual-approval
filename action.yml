@@ -23,7 +23,9 @@ inputs:
   app-token:
     description: >-
       Installation token of the GitHub App configured as custom deployment protection rule.
-      Used to poll the run and to approve the protection rule. Mutually exclusive with user-token.
+      Used to poll the run and to approve the protection rule. Must remain valid for the full
+      wait timer; use app-id/app-private-key for waits that may exceed the token's remaining lifetime.
+      Mutually exclusive with user-token.
     required: false
   app-id:
     description: >-

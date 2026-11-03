@@ -38482,16 +38482,19 @@ async function isRequiredReviewer(octokit, { owner, user, reviewers }) {
  *
  * @returns {Promise<'approved'|'rejected'|'pending'>}
  */
-async function getApprovalStatus(octokit, { owner, repo, runId, environment, reviewerCache = new Map() }) {
+async function getApprovalStatus(
+  octokit,
+  { owner, repo, runId, environment, reviewerCache = new Map(), approvedEnvironments },
+) {
   const { data: pending } = await octokit.rest.actions.getPendingDeploymentsForRun({ owner, repo, run_id: runId });
-  const targetPending = pending.filter((d) => matchesEnvironment(d.environment, environment));
-  for (const deployment of targetPending) {
+  for (const deployment of pending.filter((d) => matchesEnvironment(d.environment, environment))) {
     reviewerCache.set(deployment.environment.name, deployment.reviewers || []);
   }
 
   const { data: reviews } = await octokit.rest.actions.getReviewsForRun({ owner, repo, run_id: runId });
 
   let approver;
+  const newlyApprovedEnvironments = new Set();
   for (const review of reviews) {
     const environments = (review.environments || []).filter((env) => matchesEnvironment(env, environment));
     if (environments.length === 0) continue;
@@ -38504,17 +38507,32 @@ async function getApprovalStatus(octokit, { owner, repo, runId, environment, rev
         core.info(`Deployment to "${env.name}" rejected by @${review.user.login}.`);
         return STATUS.REJECTED;
       }
-      if (review.state === 'approved') approver = approver || `@${review.user.login} ("${env.name}")`;
+      if (review.state === 'approved') {
+        approver = approver || `@${review.user.login} ("${env.name}")`;
+        newlyApprovedEnvironments.add(env.name);
+      }
     }
   }
 
-  // Re-check pending deployments after reading reviews to avoid using a pre-approval snapshot.
   if (approver) {
-    const { data: latestPending } = await octokit.rest.actions.getPendingDeploymentsForRun({ owner, repo, run_id: runId });
-    if (!latestPending.some((d) => matchesEnvironment(d.environment, environment))) {
-      core.info(`Deployment approved by required reviewer ${approver}.`);
-      return STATUS.APPROVED;
+    const { data: latestPending } = await octokit.rest.actions.getPendingDeploymentsForRun({
+      owner,
+      repo,
+      run_id: runId,
+    });
+    const targetPending = latestPending.filter((d) => matchesEnvironment(d.environment, environment));
+    for (const deployment of targetPending) {
+      reviewerCache.set(deployment.environment.name, deployment.reviewers || []);
     }
+
+    // An approval only counts once no deployment of the target is still waiting for review.
+    if (targetPending.length > 0) return STATUS.PENDING;
+
+    if (approvedEnvironments) {
+      for (const name of newlyApprovedEnvironments) approvedEnvironments.add(name);
+    }
+    core.info(`Deployment approved by required reviewer ${approver}.`);
+    return STATUS.APPROVED;
   }
   return STATUS.PENDING;
 }
@@ -38594,9 +38612,9 @@ async function approveWithAppToken(octokit, { owner, repo, runId, environment, c
  * After a required reviewer approved, answers the App's custom protection rule for the reviewed
  * environment(s), which GitHub otherwise keeps blocking.
  */
-async function approveReviewedAppRules(octokit, { owner, repo, runId, environment, comment }) {
-  let names = [environment];
-  if (!environment) {
+async function approveReviewedAppRules(octokit, { owner, repo, runId, environment, environments, comment }) {
+  let names = environments && environments.size ? [...environments] : environment ? [environment] : [];
+  if (names.length === 0) {
     const { data: reviews } = await octokit.rest.actions.getReviewsForRun({ owner, repo, run_id: runId });
     names = [
       ...new Set(
@@ -38629,28 +38647,35 @@ const { createAppAuth } = __nccwpck_require__(8594);
 const github = __nccwpck_require__(3228);
 
 /**
- * Generates an installation token for the GitHub App installed on owner/repo.
+ * Creates an Octokit client that refreshes its installation token as needed.
  */
-async function createAppInstallationToken({ appId, privateKey, owner, repo }) {
-  const auth = createAppAuth({ appId, privateKey });
-  const { token: jwt } = await auth({ type: 'app' });
+async function createAppOctokit({ appId, privateKey, owner, repo }) {
+  const appAuth = createAppAuth({ appId, privateKey });
+  const { token: jwt } = await appAuth({ type: 'app' });
 
   const appOctokit = github.getOctokit(jwt);
   const { data: installation } = await appOctokit.rest.apps.getRepoInstallation({ owner, repo });
 
-  const { token } = await auth({ type: 'installation', installationId: installation.id });
-  return token;
+  const installationAuth = createAppAuth({
+    appId,
+    privateKey,
+    installationId: installation.id,
+    request: appOctokit.request,
+  });
+  return github.getOctokit(jwt, { request: { hook: installationAuth.hook } });
 }
 
 /**
- * Returns the token used for every API call, based on the validated auth inputs.
+ * Returns an Octokit client based on the validated auth inputs.
  */
-async function resolveToken(auth, { owner, repo }) {
-  if (auth.token) return auth.token;
-  return createAppInstallationToken({ appId: auth.appId, privateKey: auth.privateKey, owner, repo });
+async function resolveOctokit(auth, { owner, repo }) {
+  if (auth.privateKey) {
+    return createAppOctokit({ appId: auth.appId, privateKey: auth.privateKey, owner, repo });
+  }
+  return github.getOctokit(auth.token);
 }
 
-module.exports = { resolveToken, createAppInstallationToken };
+module.exports = { resolveOctokit, createAppOctokit };
 
 
 /***/ }),
@@ -38689,7 +38714,7 @@ const core = __nccwpck_require__(7484);
 const github = __nccwpck_require__(3228);
 
 const { getInputs } = __nccwpck_require__(1700);
-const { resolveToken } = __nccwpck_require__(9735);
+const { resolveOctokit } = __nccwpck_require__(9735);
 const { getApprovalStatus } = __nccwpck_require__(1579);
 const { waitForApproval, OUTCOME } = __nccwpck_require__(8644);
 const { approve, approveReviewedAppRules } = __nccwpck_require__(112);
@@ -38715,9 +38740,9 @@ async function run() {
   process.once('SIGTERM', abort);
 
   try {
-    const token = await resolveToken(auth, { owner, repo });
-    const octokit = github.getOctokit(token);
+    const octokit = await resolveOctokit(auth, { owner, repo });
     const reviewerCache = new Map();
+    const approvedEnvironments = new Set();
 
     core.info(
       `Watching ${target} of run ${runId} for ${inputs.waitTimer} minute(s); ` +
@@ -38728,14 +38753,21 @@ async function run() {
       durationMs: inputs.waitTimerMs,
       intervalMs: inputs.pollIntervalMs,
       signal: controller.signal,
-      check: () => getApprovalStatus(octokit, { owner, repo, runId, environment, reviewerCache }),
+      check: () =>
+        getApprovalStatus(octokit, { owner, repo, runId, environment, reviewerCache, approvedEnvironments }),
     });
 
     switch (outcome) {
       case OUTCOME.APPROVED:
         core.info('Approved by a required reviewer: wait timer skipped.');
         if (auth.mode === 'app') {
-          await approveReviewedAppRules(octokit, { owner, repo, runId, environment });
+          await approveReviewedAppRules(octokit, {
+            owner,
+            repo,
+            runId,
+            environment,
+            environments: approvedEnvironments,
+          });
         }
         core.setOutput('result', 'approved');
         return;
@@ -38959,8 +38991,10 @@ async function waitForApproval({ durationMs, intervalMs, check, signal, now = Da
   const poll = async () => {
     try {
       const status = await check();
+      if (signal && signal.aborted) return OUTCOME.ABORTED;
       if (status === OUTCOME.APPROVED || status === OUTCOME.REJECTED) return status;
     } catch (error) {
+      if (signal && signal.aborted) return OUTCOME.ABORTED;
       core.warning(`Approval check failed, retrying on next poll: ${error.message}`);
     }
     return null;

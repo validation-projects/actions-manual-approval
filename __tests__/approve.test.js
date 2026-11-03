@@ -72,6 +72,19 @@ describe('approveReviewedAppRules', () => {
     await approveReviewedAppRules(octokit, params);
     expect(octokit.rest.actions.reviewCustomGatesForRun.mock.calls.map((c) => c[0].environment_name)).toEqual(['prod', 'staging']);
   });
+
+  it('approves only environments confirmed by the required-reviewer check', async () => {
+    const octokit = createOctokit();
+    await approveReviewedAppRules(octokit, {
+      ...params,
+      environments: new Set(['prod', 'staging']),
+    });
+    expect(octokit.rest.actions.reviewCustomGatesForRun.mock.calls.map((c) => c[0].environment_name)).toEqual([
+      'prod',
+      'staging',
+    ]);
+    expect(octokit.rest.actions.getReviewsForRun).not.toHaveBeenCalled();
+  });
 });
 
 it('rejects unknown modes', async () => {
