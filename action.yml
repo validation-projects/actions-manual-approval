@@ -54,5 +54,5 @@ outputs:
       approved) or "cancelled" (timer expired and default-action cancelled the run).
 
 runs:
-  using: 'node20'
+  using: 'node24'
   main: 'dist/index.js'
