@@ -11,7 +11,8 @@ async function createAppInstallationToken({ appId, privateKey, owner, repo }) {
   const appOctokit = github.getOctokit(jwt);
   const { data: installation } = await appOctokit.rest.apps.getRepoInstallation({ owner, repo });
 
-  const { token } = await auth({ type: 'installation', installationId: installation.id });
+  const installationAuth = createAppAuth({ appId, privateKey, request: appOctokit.request });
+  const { token } = await installationAuth({ type: 'installation', installationId: installation.id });
   return token;
 }
 
