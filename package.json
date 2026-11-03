@@ -1,0 +1,47 @@
+{
+  "name": "actions-manual-approval",
+  "version": "1.0.0",
+  "description": "GitHub Action that replaces the native environment wait timer with a timer that is cancelled as soon as a required reviewer approves the deployment.",
+  "main": "dist/index.js",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "test": "jest",
+    "build": "ncc build src/main.js -o dist --license licenses.txt",
+    "all": "npm run lint && npm test && npm run build"
+  },
+  "keywords": [
+    "github-actions",
+    "environments",
+    "deployments",
+    "manual-approval",
+    "wait-timer"
+  ],
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/github": "^6.0.1",
+    "@octokit/auth-app": "^6.1.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@vercel/ncc": "^0.38.3",
+    "eslint": "^9.39.0",
+    "globals": "^15.15.0",
+    "jest": "^29.7.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "clearMocks": true,
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/main.js"
+    ],
+    "testMatch": [
+      "**/__tests__/**/*.test.js"
+    ]
+  }
+}

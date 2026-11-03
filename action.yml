@@ -1,0 +1,56 @@
+name: 'Cancelable Environment Wait Timer'
+description: >-
+  Replaces the native environment wait timer with a timer that stops as soon as a
+  required reviewer approves the deployment. When the timer expires without an
+  approval, the configured default action (approve or cancel) is executed.
+author: 'validation-projects'
+branding:
+  icon: 'clock'
+  color: 'blue'
+
+inputs:
+  wait-timer:
+    description: 'Time to wait for a required reviewer approval, in minutes (positive integer).'
+    required: true
+  default-action:
+    description: 'Action executed when the timer expires without approval: "approve" or "cancel".'
+    required: true
+  user-token:
+    description: >-
+      Personal access token of a required reviewer. Used to poll the run and to approve the
+      pending deployment through the pending deployments API. Mutually exclusive with app-token.
+    required: false
+  app-token:
+    description: >-
+      Installation token of the GitHub App configured as custom deployment protection rule.
+      Used to poll the run and to approve the protection rule. Mutually exclusive with user-token.
+    required: false
+  app-id:
+    description: >-
+      Alternative to app-token: GitHub App ID. Together with app-private-key, an installation
+      token is generated at runtime with @octokit/auth-app.
+    required: false
+  app-private-key:
+    description: 'Alternative to app-token: GitHub App private key (PEM). Requires app-id.'
+    required: false
+  environment:
+    description: >-
+      Name of the target environment whose pending deployment should be watched. When empty,
+      every pending deployment of the current run is watched.
+    required: false
+    default: ${{ github.event.deployment.environment }}
+  poll-interval:
+    description: 'Polling interval in seconds (integer between 5 and 300).'
+    required: false
+    default: '15'
+
+outputs:
+  result:
+    description: >-
+      Outcome of the action: "approved" (a required reviewer approved before the timer expired),
+      "rejected" (a required reviewer rejected), "auto-approved" (timer expired and default-action
+      approved) or "cancelled" (timer expired and default-action cancelled the run).
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
