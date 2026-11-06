@@ -24,7 +24,7 @@ workflow run
 ```
 
 1. O job `deploy` fica pendente aguardando revisão.
-2. A action inicia o polling (`poll-interval`, padrão 15s) por até `wait-timer` minutos, consultando
+2. A action inicia o polling (`poll-interval`, padrão 30s) por até `wait-timer` minutos, consultando
    `GET /repos/{owner}/{repo}/actions/runs/{run_id}/pending_deployments` e
    `GET /repos/{owner}/{repo}/actions/runs/{run_id}/approvals`.
 3. Se um required reviewer aprovar antes do fim (diretamente ou como membro de um team revisor,
@@ -48,18 +48,16 @@ workflow run
 | `wait-timer` | sim | — | Tempo de espera em minutos (inteiro positivo). |
 | `default-action` | sim | — | Ação ao expirar sem aprovação: `approve` ou `cancel`. |
 | `user-token` | não* | — | PAT de um required reviewer. Aprova via API de pending deployments. |
-| `app-token` | não* | — | Installation token do GitHub App configurado como custom deployment protection rule. |
-| `app-id` | não | — | Alternativa ao `app-token`: ID do GitHub App (gera o installation token com `@octokit/auth-app`). |
-| `app-private-key` | não | — | Alternativa ao `app-token`: chave privada (PEM) do GitHub App. Requer `app-id`. |
+| `app-token` | não* | — | Installation token do GitHub App configurado como custom deployment protection rule, gerado antes com [`actions/create-github-app-token@v3`](https://github.com/actions/create-github-app-token). |
 | `environment` | não | `${{ github.event.deployment.environment }}` | Environment observado. Vazio = todos os deployments pendentes do run. Obrigatório para `approve` via GitHub App. |
-| `poll-interval` | não | `15` | Intervalo de polling em segundos (5–300). |
+| `poll-interval` | não | `30` | Intervalo de polling em segundos (5–300). |
 
-\* `user-token` e `app-token` (ou `app-id`/`app-private-key`) são **mutuamente exclusivos**: exatamente
-um deles deve ser informado. Inputs inválidos falham o job com mensagens que listam todos os erros.
+\* `user-token` e `app-token` são **mutuamente exclusivos**: exatamente um deles deve ser informado.
+Inputs inválidos falham o job com mensagens que listam todos os erros.
 
-Installation tokens fornecidos em `app-token` expiram após uma hora e não podem ser renovados pela
-action. O token precisa continuar válido durante toda a espera e a ação final; para esperas longas,
-forneça `app-id` e `app-private-key`, que permitem renovar o token automaticamente.
+> Os inputs `app-id` e `app-private-key` foram removidos na `v3`: gere o token com
+> `actions/create-github-app-token@v3` e passe-o em `app-token` (veja
+> [Configuração com GitHub App](#configuração-com-github-app-custom-deployment-protection-rule)).
 
 ## Outputs
 
@@ -67,25 +65,56 @@ forneça `app-id` e `app-private-key`, que permitem renovar o token automaticame
 | --- | --- |
 | `result` | `approved`, `rejected`, `auto-approved` ou `cancelled` |
 
+## Job summary e logs
+
+A action escreve automaticamente no [job summary](https://docs.github.com/actions/using-workflows/workflow-commands-for-github-actions#adding-a-job-summary)
+(`core.summary`), sem configuração adicional:
+
+- **Configuração** (ao iniciar, após validar os inputs): wait timer (min), poll interval (s),
+  environment alvo, `default-action`, modo de autenticação (`user`/`app`) e run ID.
+- **Resultado** (em toda saída — `approved`, `rejected`, `auto-approved`, `cancelled`, `aborted` ou
+  `error`): resultado, tempo decorrido, `default-action` executada (ou `none`) e motivo.
+
+Nos logs:
+
+| Evento | Tipo | Título |
+| --- | --- | --- |
+| Início do watch | notice | `Wait timer started` |
+| Aprovação por required reviewer | notice | `Approved by reviewer` / `Result: approved` |
+| Rejeição por required reviewer | warning | `Rejected by reviewer` / `Result: rejected` |
+| Timer expirado | notice | `Wait timer expired` |
+| Aprovação automática | notice | `Result: auto-approved` |
+| Falha em um poll (tentado novamente no próximo) | warning | `Approval check` |
+| Falha ao cancelar o run via API | warning | `Cancel workflow run` |
+| Cancelamento / erro / inputs inválidos | error (`core.setFailed`) | — |
+
+Os inputs validados ficam no grupo colapsável **Configuration**; a contagem regressiva
+(`Waiting for a required reviewer... Xm left.`) é logada fora de grupo, uma linha por poll.
+
 ## Uso
 
 ### Versões
 
 | Referência | Comportamento |
 | --- | --- |
-| `@v2` | Major tag flutuante: recebe automaticamente correções e features compatíveis (`2.x.y`). Recomendado. |
-| `@v2.0.0` | Versão exata e imutável. |
+| `@v3` | Major tag flutuante: recebe automaticamente correções e features compatíveis (`3.x.y`). Recomendado. |
+| `@v3.0.0` | Versão exata e imutável. |
 | `@<sha>` | Commit específico, para máxima segurança contra alterações de tags. |
 
 Breaking changes geram uma nova major e não afetam quem referencia a major anterior.
 
 | Major | Runtime (`runs.using`) | Runner mínimo |
 | --- | --- | --- |
+| `v3` | `node24` (remove `app-id`/`app-private-key`; padrão de `poll-interval` 30s) | [v2.327.1](https://github.com/actions/runner/releases/tag/v2.327.1) |
 | `v2` | `node24` | [v2.327.1](https://github.com/actions/runner/releases/tag/v2.327.1) |
 | `v1` | `node20` (descontinuado pelo GitHub; não recebe mais atualizações) | — |
 
 Runners hospedados pelo GitHub já atendem ao requisito. Em **runners self-hosted**, atualize o runner
-para v2.327.1 ou superior antes de migrar de `@v1` para `@v2`; até lá, continue usando `@v1`.
+para v2.327.1 ou superior antes de migrar de `@v1` para `@v2`/`@v3`; até lá, continue usando `@v1`.
+
+Migração `@v2` → `@v3`: substitua `app-id`/`app-private-key` por um step
+`actions/create-github-app-token@v3` cujo token é passado em `app-token`. Se você dependia do
+intervalo de polling de 15s, defina `poll-interval: 15` explicitamente.
 
 ### Environment com Required reviewers
 
@@ -108,7 +137,7 @@ jobs:
   approval-timer:
     runs-on: ubuntu-latest
     steps:
-      - uses: validation-projects/actions-manual-approval@v2
+      - uses: validation-projects/actions-manual-approval@v3
         with:
           wait-timer: 30
           default-action: approve
@@ -153,7 +182,7 @@ jobs:
     permissions:
       actions: read
     steps:
-      - uses: validation-projects/actions-manual-approval@v2
+      - uses: validation-projects/actions-manual-approval@v3
         with:
           environment: ${{ inputs.environment }}
           wait-timer: ${{ inputs.wait-timer }}
@@ -202,10 +231,9 @@ precisam rodar em paralelo.
    **Environments: Read** (e **Members: Read** se houver teams revisores) e instale-o no repositório.
 2. Em **Settings → Environments → `production`**, habilite o App em
    **Deployment protection rules** (custom protection rule).
-3. Forneça o token ao workflow:
-   - gerando o installation token antes, ex. com
-     [`actions/create-github-app-token`](https://github.com/actions/create-github-app-token), e passando-o em `app-token`; ou
-   - passando `app-id` e `app-private-key` diretamente para a action.
+3. Gere o installation token em um step anterior com
+   [`actions/create-github-app-token@v3`](https://github.com/actions/create-github-app-token) e
+   passe-o em `app-token`. A action não gera nem renova tokens.
 
 ```yaml
 jobs:
@@ -218,7 +246,7 @@ jobs:
           client-id: ${{ vars.APPROVER_APP_CLIENT_ID }}
           private-key: ${{ secrets.APPROVER_APP_PRIVATE_KEY }}
 
-      - uses: validation-projects/actions-manual-approval@v2
+      - uses: validation-projects/actions-manual-approval@v3
         with:
           wait-timer: 30
           default-action: approve
@@ -229,6 +257,11 @@ jobs:
 Ao expirar sem aprovação, a action aprova a protection rule do App para o environment. Quando um
 required reviewer aprova antes, a action também responde à protection rule do App. O GitHub só
 libera o job quando **todas** as protection rules do environment estiverem satisfeitas.
+
+> **Limitação conhecida:** installation tokens expiram **1 hora** após serem gerados e a action não
+> os renova. O token precisa continuar válido durante toda a espera **e** na ação final (aprovar ou
+> cancelar). Gere-o imediatamente antes do step da action (sem steps demorados entre os dois) e
+> mantenha `wait-timer` com folga abaixo de 60 minutos. Para esperas mais longas, use `user-token`.
 
 ## Desenvolvimento
 
@@ -279,7 +312,7 @@ seguir a convenção.
      `chore(release): X.Y.Z [skip ci]`;
    - `@semantic-release/github` cria a tag `vX.Y.Z` e o GitHub Release, e comenta nos issues/PRs incluídos.
 3. A major tag flutuante (`v1`, `v2`, …) é movida para o commit da nova release, então
-   `uses: validation-projects/actions-manual-approval@v2` sempre aponta para a última `v2.x.y`.
+   `uses: validation-projects/actions-manual-approval@v3` sempre aponta para a última `v3.x.y`.
 
 O campo `version` do `package.json` é atualizado pelo semantic-release em cada release; a fonte da
 verdade são as tags `vX.Y.Z`.
@@ -292,12 +325,12 @@ verdade são as tags `vX.Y.Z`.
 
 | Arquivo | Responsabilidade |
 | --- | --- |
-| `src/index.js` | Orquestrador: inputs → polling → aprovação ou cancelamento. |
+| `src/index.js` | Orquestrador: inputs → cliente Octokit (`github.getOctokit(token)`) → polling → aprovação ou cancelamento; logs e summaries. |
 | `src/main.js` | Entry point do bundle (`ncc build src/main.js`). |
 | `src/inputs.js` | Parsing e validação dos inputs (inclui regra XOR `user-token`/`app-token`). |
-| `src/auth.js` | Resolução do token (installation token via `@octokit/auth-app`). |
 | `src/approval-check.js` | Detecta aprovação/rejeição por required reviewers (incluindo teams). |
 | `src/wait.js` | Loop de polling com `setTimeout`, abortável via `AbortController`. |
 | `src/approve.js` | Aprovação via pending deployments (PAT) ou protection rule (App). |
 | `src/cancel.js` | Cancelamento do run e falha do job. |
+| `src/summary.js` | Job summaries (configuração e resultado) via `core.summary`. |
 | `.releaserc.json` | Configuração do semantic-release. |

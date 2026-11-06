@@ -15,7 +15,10 @@ describe('cancel', () => {
     const octokit = createOctokit();
     octokit.rest.actions.cancelWorkflowRun.mockRejectedValue(httpError(403, 'Resource not accessible'));
     await cancel(octokit, { owner: 'org', repo: 'repo', runId: 3, reason: 'expired' });
-    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Resource not accessible'));
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Resource not accessible'),
+      { title: 'Cancel workflow run' },
+    );
     expect(core.setFailed).toHaveBeenCalledWith('expired');
   });
 });

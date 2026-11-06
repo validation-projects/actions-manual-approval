@@ -12,6 +12,7 @@ async function cancel(octokit, { owner, repo, runId, reason }) {
     core.warning(
       `Could not cancel workflow run ${runId} through the API (${error.message}). ` +
         'Grant "actions: write" to the token to cancel the run; failing the job instead.',
+      { title: 'Cancel workflow run' },
     );
   }
   core.setFailed(reason);

@@ -43,7 +43,7 @@ function parseDefaultAction(raw, errors) {
 }
 
 function parsePollInterval(raw, errors) {
-  if (!raw) return 15;
+  if (!raw) return 30;
   const value = Number(raw);
   if (!POSITIVE_INTEGER.test(raw) || value < MIN_POLL_INTERVAL || value > MAX_POLL_INTERVAL) {
     errors.push(
@@ -54,29 +54,16 @@ function parsePollInterval(raw, errors) {
   return value;
 }
 
-function parseAuth({ userToken, appToken, appId, appPrivateKey }, errors) {
-  if ((appId && !appPrivateKey) || (!appId && appPrivateKey)) {
-    errors.push('"app-id" and "app-private-key" must be provided together.');
-    return undefined;
-  }
-  if (appToken && appId) {
-    errors.push('Use either "app-token" or "app-id"/"app-private-key", not both.');
-    return undefined;
-  }
-
-  const hasApp = Boolean(appToken || appId);
-  if (userToken && hasApp) {
+function parseAuth({ userToken, appToken }, errors) {
+  if (userToken && appToken) {
     errors.push('"user-token" and "app-token" are mutually exclusive: provide only one of them.');
     return undefined;
   }
-  if (!userToken && !hasApp) {
+  if (!userToken && !appToken) {
     errors.push('One of "user-token" or "app-token" must be provided.');
     return undefined;
   }
-
-  if (userToken) return { mode: 'user', token: userToken };
-  if (appToken) return { mode: 'app', token: appToken };
-  return { mode: 'app', appId, privateKey: appPrivateKey };
+  return userToken ? { mode: 'user', token: userToken } : { mode: 'app', token: appToken };
 }
 
 /**
@@ -90,23 +77,13 @@ function getInputs() {
   const defaultAction = parseDefaultAction(read('default-action'), errors);
   const pollInterval = parsePollInterval(read('poll-interval'), errors);
   const environment = read('environment') || undefined;
-  const auth = parseAuth(
-    {
-      userToken: read('user-token'),
-      appToken: read('app-token'),
-      appId: read('app-id'),
-      appPrivateKey: read('app-private-key'),
-    },
-    errors,
-  );
+  const auth = parseAuth({ userToken: read('user-token'), appToken: read('app-token') }, errors);
 
   if (auth && auth.mode === 'app' && defaultAction === 'approve' && !environment) {
     errors.push('"environment" is required when approving through a GitHub App (custom protection rule).');
   }
 
   if (errors.length) throw new InputError(errors);
-
-  if (auth.privateKey) core.setSecret(auth.privateKey);
 
   return {
     waitTimer,

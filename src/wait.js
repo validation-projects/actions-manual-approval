@@ -54,7 +54,7 @@ async function waitForApproval({ durationMs, intervalMs, check, signal, now = Da
       if (status === OUTCOME.APPROVED || status === OUTCOME.REJECTED) return status;
     } catch (error) {
       if (signal && signal.aborted) return OUTCOME.ABORTED;
-      core.warning(`Approval check failed, retrying on next poll: ${error.message}`);
+      core.warning(`Approval check failed, retrying on next poll: ${error.message}`, { title: 'Approval check' });
     }
     return null;
   };
