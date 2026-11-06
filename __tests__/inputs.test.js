@@ -15,7 +15,7 @@ describe('getInputs', () => {
       waitTimer: 10,
       waitTimerMs: 600000,
       defaultAction: 'approve',
-      pollIntervalMs: 15000,
+      pollIntervalMs: 30000,
       environment: 'prod',
       auth: { mode: 'user', token: 'ghp_x' },
     });
@@ -28,10 +28,11 @@ describe('getInputs', () => {
     expect(inputs.defaultAction).toBe('cancel');
   });
 
-  it('accepts app-id + app-private-key and masks the key', () => {
-    setInputs({ ...base, 'user-token': '', 'app-id': '123', 'app-private-key': 'PEM' });
-    expect(getInputs().auth).toEqual({ mode: 'app', appId: '123', privateKey: 'PEM' });
-    expect(core.setSecret).toHaveBeenCalledWith('PEM');
+  it('ignores the removed app-id/app-private-key inputs', () => {
+    setInputs({ ...base, 'app-id': '123', 'app-private-key': 'PEM' });
+    expect(getInputs().auth).toEqual({ mode: 'user', token: 'ghp_x' });
+    expect(core.getInput).not.toHaveBeenCalledWith('app-id', expect.anything());
+    expect(core.getInput).not.toHaveBeenCalledWith('app-private-key', expect.anything());
   });
 
   it('treats empty environment as undefined', () => {
@@ -40,16 +41,14 @@ describe('getInputs', () => {
   });
 
   it('parses a custom poll-interval', () => {
-    setInputs({ ...base, 'poll-interval': '30' });
-    expect(getInputs().pollIntervalMs).toBe(30000);
+    setInputs({ ...base, 'poll-interval': '15' });
+    expect(getInputs().pollIntervalMs).toBe(15000);
   });
 
   it.each([
     [{ 'user-token': 'a', 'app-token': 'b' }, 'mutually exclusive'],
     [{ 'user-token': '', 'app-token': '' }, 'One of "user-token" or "app-token" must be provided'],
-    [{ 'user-token': 'a', 'app-id': '1', 'app-private-key': 'k' }, 'mutually exclusive'],
-    [{ 'user-token': '', 'app-id': '1' }, 'must be provided together'],
-    [{ 'user-token': '', 'app-token': 't', 'app-id': '1', 'app-private-key': 'k' }, 'not both'],
+    [{ 'user-token': '', 'app-id': '1', 'app-private-key': 'k' }, 'One of "user-token" or "app-token" must be provided'],
     [{ 'wait-timer': '' }, '"wait-timer" is required'],
     [{ 'wait-timer': '0' }, 'positive integer'],
     [{ 'wait-timer': '-5' }, 'positive integer'],

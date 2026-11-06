@@ -22,18 +22,11 @@ inputs:
     required: false
   app-token:
     description: >-
-      Installation token of the GitHub App configured as custom deployment protection rule.
-      Used to poll the run and to approve the protection rule. Must remain valid for the full
-      wait timer; use app-id/app-private-key for waits that may exceed the token's remaining lifetime.
+      Installation token of the GitHub App configured as custom deployment protection rule,
+      generated in a previous step with actions/create-github-app-token@v3. Used to poll the run
+      and to approve the protection rule. Installation tokens expire after 1 hour and are not
+      renewed by the action, so the token must remain valid for the full wait timer.
       Mutually exclusive with user-token.
-    required: false
-  app-id:
-    description: >-
-      Alternative to app-token: GitHub App ID. Together with app-private-key, an installation
-      token is generated at runtime with @octokit/auth-app.
-    required: false
-  app-private-key:
-    description: 'Alternative to app-token: GitHub App private key (PEM). Requires app-id.'
     required: false
   environment:
     description: >-
@@ -44,7 +37,7 @@ inputs:
   poll-interval:
     description: 'Polling interval in seconds (integer between 5 and 300).'
     required: false
-    default: '15'
+    default: '30'
 
 outputs:
   result:

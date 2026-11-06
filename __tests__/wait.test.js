@@ -1,4 +1,5 @@
 jest.mock('@actions/core');
+const core = require('@actions/core');
 const { waitForApproval, sleep, formatDuration, OUTCOME } = require('../src/wait');
 
 describe('waitForApproval', () => {
@@ -50,6 +51,7 @@ describe('waitForApproval', () => {
     const promise = waitForApproval(opts(check));
     await jest.advanceTimersByTimeAsync(15000);
     await expect(promise).resolves.toBe(OUTCOME.APPROVED);
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('boom'), { title: 'Approval check' });
   });
 
   it('returns aborted when a successful check finishes after the signal is aborted', async () => {

@@ -101,7 +101,7 @@ async function getApprovalStatus(
       if (!(await isRequiredReviewer(octokit, { owner, user: review.user, reviewers }))) continue;
 
       if (review.state === 'rejected') {
-        core.info(`Deployment to "${env.name}" rejected by @${review.user.login}.`);
+        core.warning(`Deployment to "${env.name}" rejected by @${review.user.login}.`, { title: 'Rejected by reviewer' });
         return STATUS.REJECTED;
       }
       if (review.state === 'approved') {
@@ -128,7 +128,7 @@ async function getApprovalStatus(
     if (approvedEnvironments) {
       for (const name of newlyApprovedEnvironments) approvedEnvironments.add(name);
     }
-    core.info(`Deployment approved by required reviewer ${approver}.`);
+    core.notice(`Deployment approved by required reviewer ${approver}.`, { title: 'Approved by reviewer' });
     return STATUS.APPROVED;
   }
   return STATUS.PENDING;

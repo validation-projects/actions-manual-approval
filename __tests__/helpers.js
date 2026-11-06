@@ -22,9 +22,6 @@ function createOctokit({ pending = [], reviews = [], environment, membership } =
       teams: {
         getMembershipForUserInOrg: membership || jest.fn().mockRejectedValue(httpError(404)),
       },
-      apps: {
-        getRepoInstallation: jest.fn().mockResolvedValue({ data: { id: 99 } }),
-      },
     },
   };
 }
