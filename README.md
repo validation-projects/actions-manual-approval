@@ -299,13 +299,7 @@ jobs:
       - id: slot
         env:
           EPHEMERAL_RUN: ${{ github.event.repository.custom_properties.EPHEMERAL_RUN }}
-        run: |
-          max="${EPHEMERAL_RUN:-1}"
-          if ! [[ "$max" =~ ^[1-9][0-9]*$ ]]; then
-            echo "::warning title=EPHEMERAL_RUN::Valor inválido \"$max\"; usando 1."
-            max=1
-          fi
-          echo "id=$(( GITHUB_RUN_NUMBER % max ))" >> "$GITHUB_OUTPUT"
+        run: echo "id=$(( GITHUB_RUN_NUMBER % EPHEMERAL_RUN ))" >> "$GITHUB_OUTPUT"
 
   pipeline:
     needs: slot
@@ -328,8 +322,8 @@ jobs:
   podem ainda não reconhecer `queue`.
 - A distribuição é round-robin, não um semáforo: um run pode esperar num slot ocupado mesmo havendo outro
   livre. O limite de no máximo N pipelines simultâneos é garantido.
-- Sem a property, ou com valor inválido, o slot usa `1` (um pipeline por vez). Re-runs mantêm o
-  `run_number`, e portanto o slot.
+- A property é definida a nível de organização (inteiro positivo, não editável pelos usuários), por isso
+  o valor é usado sem validação. Re-runs mantêm o `run_number`, e portanto o slot.
 - O job `approval-timer` ocupa um runner durante a espera; um pool dedicado (`approval-timer`) evita que
   ele concorra com os jobs de build/deploy. `timer-timeout-minutes` deve ficar acima de `wait-timer`.
 
