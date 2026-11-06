@@ -1,3 +1,15 @@
+## [3.0.0](https://github.com/validation-projects/actions-manual-approval/compare/v2.0.0...v3.0.0) (2026-11-06)
+
+### ⚠ BREAKING CHANGES
+
+* inputs app-id e app-private-key removidos; gere o token com actions/create-github-app-token e passe em app-token.
+
+Co-Authored-By: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>
+
+### Features
+
+* drop @octokit/auth-app, add job summaries and annotated logs ([1b9dffe](https://github.com/validation-projects/actions-manual-approval/commit/1b9dffe55b2d522e7feed7630ebca122f0b65f2a))
+
 ## [2.0.0](https://github.com/validation-projects/actions-manual-approval/compare/v1.0.0...v2.0.0) (2026-11-03)
 
 ### ⚠ BREAKING CHANGES
