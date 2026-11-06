@@ -215,6 +215,108 @@ O job do reusable workflow roda no mesmo workflow run do caller (`github.run_id`
 action enxerga o deployment pendente do job `deploy`. Não declare `needs` entre os dois jobs: eles
 precisam rodar em paralelo.
 
+### Limitar execuções simultâneas por repositório
+
+Exemplo para permitir no máximo N pipelines rodando ao mesmo tempo em um repositório, com N definido na
+variável `MAX_CONCURRENT_RUNS` (repository ou organization variable; poderia vir também de uma custom
+property, via `github.event.repository.custom_properties.<nome>`).
+
+Cada run é atribuído a um de N grupos de `concurrency` ("slots") por `github.run_number % N`. Como
+expressions não têm aritmética, o slot é calculado num job curto e usado no `concurrency` do job
+seguinte. Com a action, um deployment sem revisão ocupa o slot no máximo `wait-timer` minutos (e não até
+30 dias): com `default-action: cancel`, o run é cancelado e o slot liberado.
+
+`.github/workflows/gated-pipeline.yml` (reusable: build → timer + deploy em paralelo):
+
+```yaml
+name: Gated pipeline
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      wait-timer:
+        type: number
+        required: true
+      default-action:
+        type: string
+        default: cancel
+      timer-timeout-minutes:
+        type: number
+        default: 360
+    secrets:
+      user-token:
+        required: true
+
+jobs:
+  build:
+    runs-on: [self-hosted]
+    steps:
+      - run: echo "build + testes..."
+
+  approval-timer:
+    needs: build
+    runs-on: [self-hosted, approval-timer]
+    timeout-minutes: ${{ inputs.timer-timeout-minutes }}
+    steps:
+      - uses: validation-projects/actions-manual-approval@v3
+        with:
+          environment: ${{ inputs.environment }}
+          wait-timer: ${{ inputs.wait-timer }}
+          default-action: ${{ inputs.default-action }}
+          user-token: ${{ secrets.user-token }}
+
+  deploy:
+    needs: build
+    runs-on: [self-hosted]
+    environment: ${{ inputs.environment }}
+    steps:
+      - run: echo "deploying..."
+```
+
+`.github/workflows/deploy.yml`:
+
+```yaml
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  slot:
+    runs-on: [self-hosted]
+    outputs:
+      id: ${{ steps.slot.outputs.id }}
+    steps:
+      - id: slot
+        env:
+          MAX_CONCURRENT_RUNS: ${{ vars.MAX_CONCURRENT_RUNS }}
+        run: echo "id=$(( GITHUB_RUN_NUMBER % MAX_CONCURRENT_RUNS ))" >> "$GITHUB_OUTPUT"
+
+  pipeline:
+    needs: slot
+    concurrency:
+      group: ${{ github.repository }}-run-slot-${{ needs.slot.outputs.id }}
+      cancel-in-progress: false
+      queue: max
+    uses: ./.github/workflows/gated-pipeline.yml
+    with:
+      environment: production
+      wait-timer: 60
+      default-action: cancel
+      timer-timeout-minutes: 70
+    secrets:
+      user-token: ${{ secrets.APPROVER_PAT }}
+```
+
+- `queue: max` deixa até 100 runs aguardando por slot (o padrão cancela o pending anterior). Não combina
+  com `cancel-in-progress: true`.
+- A distribuição é round-robin: um run pode esperar num slot ocupado mesmo com outro livre, mas o limite de
+  N simultâneos é garantido. Para N = 1, basta um `concurrency` fixo no workflow.
+
 ### Configuração com PAT (`user-token`)
 
 - O PAT deve pertencer a um usuário que seja **required reviewer** do environment (direto ou via
