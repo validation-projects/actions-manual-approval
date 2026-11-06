@@ -215,6 +215,124 @@ O job do reusable workflow roda no mesmo workflow run do caller (`github.run_id`
 action enxerga o deployment pendente do job `deploy`. Não declare `needs` entre os dois jobs: eles
 precisam rodar em paralelo.
 
+### Limite de pipelines simultâneos (custom property `EPHEMERAL_RUN`)
+
+Cenário: cada repositório tem a [custom property](https://docs.github.com/organizations/managing-organization-settings/managing-custom-properties-for-repositories-in-your-organization)
+`EPHEMERAL_RUN` com o número máximo de pipelines que podem rodar ao mesmo tempo (ex.: `3`).
+
+O `concurrency` do GitHub permite **um** run em execução por grupo. Para permitir até N, o run é
+distribuído em N grupos ("slots") por `github.run_number % N`. Expressions não têm operadores
+aritméticos, então o slot é calculado num job curto e usado no `concurrency` do job seguinte (a nível de
+job, `concurrency` aceita o contexto `needs`). O valor da property vem do payload do evento, em
+`github.event.repository.custom_properties`.
+
+Como a espera por aprovação acontece **dentro** do slot, um deployment sem revisão ocuparia o slot por
+até 30 dias (limite do GitHub para aprovação de environments). Com esta action o slot fica preso no máximo
+`wait-timer` minutos: ao expirar, `default-action: cancel` cancela o run e libera o slot para o próximo
+da fila.
+
+`.github/workflows/gated-pipeline.yml` (reusable: build → timer + deploy em paralelo):
+
+```yaml
+name: Gated pipeline
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      wait-timer:
+        type: number
+        required: true
+      default-action:
+        type: string
+        default: cancel
+      timer-timeout-minutes:
+        type: number
+        default: 360
+    secrets:
+      user-token:
+        required: true
+
+jobs:
+  build:
+    runs-on: [self-hosted]
+    steps:
+      - run: echo "build + testes..."
+
+  approval-timer:
+    needs: build
+    runs-on: [self-hosted, approval-timer]
+    timeout-minutes: ${{ inputs.timer-timeout-minutes }}
+    steps:
+      - uses: validation-projects/actions-manual-approval@v3
+        with:
+          environment: ${{ inputs.environment }}
+          wait-timer: ${{ inputs.wait-timer }}
+          default-action: ${{ inputs.default-action }}
+          user-token: ${{ secrets.user-token }}
+
+  deploy:
+    needs: build
+    runs-on: [self-hosted]
+    environment: ${{ inputs.environment }}
+    steps:
+      - run: echo "deploying..."
+```
+
+`.github/workflows/deploy.yml` (caller com o slot):
+
+```yaml
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  slot:
+    runs-on: [self-hosted]
+    outputs:
+      id: ${{ steps.slot.outputs.id }}
+    steps:
+      - id: slot
+        env:
+          EPHEMERAL_RUN: ${{ github.event.repository.custom_properties.EPHEMERAL_RUN }}
+        run: |
+          max="${EPHEMERAL_RUN:-1}"
+          if ! [[ "$max" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::warning title=EPHEMERAL_RUN::Valor inválido \"$max\"; usando 1."
+            max=1
+          fi
+          echo "id=$(( GITHUB_RUN_NUMBER % max ))" >> "$GITHUB_OUTPUT"
+
+  pipeline:
+    needs: slot
+    concurrency:
+      group: ${{ github.repository }}-ephemeral-run-${{ needs.slot.outputs.id }}
+      cancel-in-progress: false
+      queue: max
+    uses: ./.github/workflows/gated-pipeline.yml
+    with:
+      environment: production
+      wait-timer: 60
+      default-action: cancel
+      timer-timeout-minutes: 70
+    secrets:
+      user-token: ${{ secrets.APPROVER_PAT }}
+```
+
+- `queue: max` mantém até 100 runs aguardando por slot (o padrão, `single`, cancela o pending anterior a
+  cada novo run). Não pode ser combinado com `cancel-in-progress: true`. Linters como o `actionlint`
+  podem ainda não reconhecer `queue`.
+- A distribuição é round-robin, não um semáforo: um run pode esperar num slot ocupado mesmo havendo outro
+  livre. O limite de no máximo N pipelines simultâneos é garantido.
+- Sem a property, ou com valor inválido, o slot usa `1` (um pipeline por vez). Re-runs mantêm o
+  `run_number`, e portanto o slot.
+- O job `approval-timer` ocupa um runner durante a espera; um pool dedicado (`approval-timer`) evita que
+  ele concorra com os jobs de build/deploy. `timer-timeout-minutes` deve ficar acima de `wait-timer`.
+
 ### Configuração com PAT (`user-token`)
 
 - O PAT deve pertencer a um usuário que seja **required reviewer** do environment (direto ou via
