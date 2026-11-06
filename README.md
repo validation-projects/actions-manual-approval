@@ -215,21 +215,16 @@ O job do reusable workflow roda no mesmo workflow run do caller (`github.run_id`
 action enxerga o deployment pendente do job `deploy`. Não declare `needs` entre os dois jobs: eles
 precisam rodar em paralelo.
 
-### Limite de pipelines simultâneos (custom property `EPHEMERAL_RUN`)
+### Limitar execuções simultâneas por repositório
 
-Cenário: cada repositório tem a [custom property](https://docs.github.com/organizations/managing-organization-settings/managing-custom-properties-for-repositories-in-your-organization)
-`EPHEMERAL_RUN` com o número máximo de pipelines que podem rodar ao mesmo tempo (ex.: `3`).
+Exemplo para permitir no máximo N pipelines rodando ao mesmo tempo em um repositório, com N definido na
+variável `MAX_CONCURRENT_RUNS` (repository ou organization variable; poderia vir também de uma custom
+property, via `github.event.repository.custom_properties.<nome>`).
 
-O `concurrency` do GitHub permite **um** run em execução por grupo. Para permitir até N, o run é
-distribuído em N grupos ("slots") por `github.run_number % N`. Expressions não têm operadores
-aritméticos, então o slot é calculado num job curto e usado no `concurrency` do job seguinte (a nível de
-job, `concurrency` aceita o contexto `needs`). O valor da property vem do payload do evento, em
-`github.event.repository.custom_properties`.
-
-Como a espera por aprovação acontece **dentro** do slot, um deployment sem revisão ocuparia o slot por
-até 30 dias (limite do GitHub para aprovação de environments). Com esta action o slot fica preso no máximo
-`wait-timer` minutos: ao expirar, `default-action: cancel` cancela o run e libera o slot para o próximo
-da fila.
+Cada run é atribuído a um de N grupos de `concurrency` ("slots") por `github.run_number % N`. Como
+expressions não têm aritmética, o slot é calculado num job curto e usado no `concurrency` do job
+seguinte. Com a action, um deployment sem revisão ocupa o slot no máximo `wait-timer` minutos (e não até
+30 dias): com `default-action: cancel`, o run é cancelado e o slot liberado.
 
 `.github/workflows/gated-pipeline.yml` (reusable: build → timer + deploy em paralelo):
 
@@ -281,7 +276,7 @@ jobs:
       - run: echo "deploying..."
 ```
 
-`.github/workflows/deploy.yml` (caller com o slot):
+`.github/workflows/deploy.yml`:
 
 ```yaml
 name: Deploy
@@ -298,13 +293,13 @@ jobs:
     steps:
       - id: slot
         env:
-          EPHEMERAL_RUN: ${{ github.event.repository.custom_properties.EPHEMERAL_RUN }}
-        run: echo "id=$(( GITHUB_RUN_NUMBER % EPHEMERAL_RUN ))" >> "$GITHUB_OUTPUT"
+          MAX_CONCURRENT_RUNS: ${{ vars.MAX_CONCURRENT_RUNS }}
+        run: echo "id=$(( GITHUB_RUN_NUMBER % MAX_CONCURRENT_RUNS ))" >> "$GITHUB_OUTPUT"
 
   pipeline:
     needs: slot
     concurrency:
-      group: ${{ github.repository }}-ephemeral-run-${{ needs.slot.outputs.id }}
+      group: ${{ github.repository }}-run-slot-${{ needs.slot.outputs.id }}
       cancel-in-progress: false
       queue: max
     uses: ./.github/workflows/gated-pipeline.yml
@@ -317,15 +312,10 @@ jobs:
       user-token: ${{ secrets.APPROVER_PAT }}
 ```
 
-- `queue: max` mantém até 100 runs aguardando por slot (o padrão, `single`, cancela o pending anterior a
-  cada novo run). Não pode ser combinado com `cancel-in-progress: true`. Linters como o `actionlint`
-  podem ainda não reconhecer `queue`.
-- A distribuição é round-robin, não um semáforo: um run pode esperar num slot ocupado mesmo havendo outro
-  livre. O limite de no máximo N pipelines simultâneos é garantido.
-- A property é definida a nível de organização (inteiro positivo, não editável pelos usuários), por isso
-  o valor é usado sem validação. Re-runs mantêm o `run_number`, e portanto o slot.
-- O job `approval-timer` ocupa um runner durante a espera; um pool dedicado (`approval-timer`) evita que
-  ele concorra com os jobs de build/deploy. `timer-timeout-minutes` deve ficar acima de `wait-timer`.
+- `queue: max` deixa até 100 runs aguardando por slot (o padrão cancela o pending anterior). Não combina
+  com `cancel-in-progress: true`.
+- A distribuição é round-robin: um run pode esperar num slot ocupado mesmo com outro livre, mas o limite de
+  N simultâneos é garantido. Para N = 1, basta um `concurrency` fixo no workflow.
 
 ### Configuração com PAT (`user-token`)
 
